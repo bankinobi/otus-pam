@@ -1,0 +1,110 @@
+---
+- name: Otus ansible hw
+  hosts: all
+  become: yes
+
+  vars:
+    pam_packages:
+      - vim
+      - pam_script
+    docker_repo: https://download.docker.com/linux/centos/docker-ce.repo
+    docker_packages:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+
+  tasks:
+    - name: Install epel-release package
+      package:
+        name: epel-release
+        state: present
+
+    - name: Install docker repo
+      get_url:
+        url: "{{ docker_repo }}"
+        dest: /etc/yum.repos.d/docker.repo
+        owner: root
+        mode: "0644"
+    
+    - name: Install docker packages
+      package:
+        name: "{{ docker_packages }}"
+        state: present
+
+    - name: Install PAM packages
+      package:
+        name: "{{ pam_packages }}"
+        state: present
+
+    - name: Create user group admin
+      group:
+        name: admin
+        state: present
+
+    - name: Ensure otus user exists and a member of docker group
+      user:
+        name: otus
+        password: $6$QrOHUifY8SrFEt9j$1R4YyQDr7VhvAKEKIhYNlXKrlQh5l3iJLlILWxthtmYeEf8lsJJVp.NKCZDNS645vgm9MTlFjWLkjefsyxXvn0
+        groups: [docker]
+
+    - name: Ensure vagrant user is a member of admin group
+      user:
+        name: vagrant
+        groups: [admin]
+
+    - name: Copy PAM files
+      copy:
+        src: "files/{{ item.name }}"
+        dest: "{{ item.dest }}"
+        mode: "{{ item.mode | default(omit) }}"
+      loop:
+        - { name: admin_acct, dest: /etc/pam-script.d/admin_acct, mode: "+x" }
+        - { name: sshd, dest: /etc/pam.d/sshd }
+
+    - name: Create .ssh dir for otus user
+      file:
+        path: /home/otus/.ssh
+        owner: otus
+        group: otus
+        mode: "0700"
+        state: directory
+
+    - name: Copy ssh keys
+      copy:
+        src: "files/{{ item.name }}"
+        dest: "/home/otus/.ssh/{{ item.name }}"
+        owner: otus
+        group: otus
+        mode: "{{ item.mode }}"
+      loop:
+        - { name: id_rsa, mode: "0600"}
+        - { name: id_rsa.pub, mode: "0644" }
+
+    - name: Create authorized_keys file
+      copy:
+        src: "files/id_rsa.pub"
+        dest: "/home/otus/.ssh/authorized_keys"
+        owner: otus
+        group: otus
+        mode: "0644"
+
+    - name: Copy Polkit rule files
+      copy:
+        src: "files/{{ item }}"
+        dest: "/etc/polkit-1/rules.d/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - 00-access.rules
+        - 01-systemd.rules
+      notify: restart polkit
+
+  handlers:
+    - name: restart polkit
+      service:
+        name: polkit
+        state: restarted
+        enabled: true
+      register: restart_status
+      until: restart_status is succeeded

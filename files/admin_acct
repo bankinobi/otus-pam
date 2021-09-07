@@ -1,0 +1,13 @@
+#!/bin/bash
+
+## Check if today is Saturday or Sunday
+if [[ $(date +%a) = @(Sat|Sun) ]]; then
+## Check if PAM_USER is in 'admin' group
+  if [[ `groups $PAM_USER | grep admin` ]]; then
+## Grant access if in admin group
+    exit 0
+  else
+## Resrict access if not in admin group
+    exit 1
+  fi
+fi
